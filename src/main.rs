@@ -1,121 +1,36 @@
-use pixels::{Error, Pixels, SurfaceTexture};
+use pixels::{Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard::KeyCode;
 use winit::window::WindowAttributes;
+use winit::{
+    event_loop::EventLoop,
+    keyboard::{KeyCode, PhysicalKey},
+};
 
-struct World {
-    map: Vec<Vec<u8>>,
-    cols: usize,
-    rows: usize,
-    tile_size: f32,
-    player: Player,
-    max_depth: f32,
-}
+const MAP_WIDTH: usize = 12;
+const MAP_HEIGHT: usize = 12;
+const SCREEN_WIDTH: u32 = 640;
+const SCREEN_HEIGHT: u32 = 480;
+const MAP: [[u8; MAP_HEIGHT]; MAP_WIDTH] = [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+];
 
-impl World {
-    fn get(&self, x: usize, y: usize) -> Option<u8> {
-        self.map.get(y)?.get(x).copied()
-    }
-
-    fn is_wall(&self, x: usize, y: usize) -> bool {
-        self.get(x, y).is_some_and(|v| v != 0)
-    }
-
-    fn to_tile(&self, px: f32, py: f32) -> (usize, usize) {
-        (
-            (px / self.tile_size) as usize,
-            (py / self.tile_size) as usize,
-        )
-    }
-
-    fn draw(&self, frame: &mut [u8]) {
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let px = (i % WIDTH as usize) as f32;
-            let py = (i / WIDTH as usize) as f32;
-
-            let (x, y) = self.to_tile(px, py);
-            let rgba = if self.is_wall(x, y) {
-                [0x5e, 0x48, 0xe8, 0xff]
-            } else {
-                [0x48, 0xb2, 0xe8, 0xff]
-            };
-
-            pixel.copy_from_slice(&rgba);
-        }
-    }
-}
-
-struct Player {
-    x: f32,
-    y: f32,
-    dir: f32,
-    fov: f32,
-    move_speed: f32,
-    rot_speed: f32,
-}
-
-impl Player {
-    fn to_tile(&self, px: f32, py: f32) -> (usize, usize) {
-        (
-            (px / self.tile_size) as usize,
-            (py / self.tile_size) as usize,
-        )
-    }
-
-    fn draw(&self, frame: &mut [u8]) {
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let px = (i % WIDTH as usize) as f32;
-            let py = (i / WIDTH as usize) as f32;
-
-            let (x, y) = self.to_tile(px, py);
-            let rgba = if self.is_wall(x, y) {
-                [0x5e, 0x48, 0xe8, 0xff]
-            } else {
-                [0x48, 0xb2, 0xe8, 0xff]
-            };
-
-            pixel.copy_from_slice(&rgba);
-        }
-    }
-}
-const WIDTH: u32 = 600;
-const HEIGHT: u32 = 600;
-
-fn main() -> Result<(), Error> {
-    let map = vec![
-        vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        vec![1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        vec![1, 0, 0, 1, 0, 1, 2, 1, 1, 1],
-        vec![1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        vec![1, 0, 0, 3, 0, 0, 0, 0, 0, 1],
-        vec![1, 0, 0, 1, 0, 1, 1, 1, 1, 1],
-        vec![1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        vec![1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        vec![1, 1, 4, 1, 1, 1, 1, 1, 1, 1],
-    ];
-
-    let world = World {
-        cols: map[0].len(),
-        rows: map.len(),
-        map: map,
-        tile_size: 60.0,
-        player: Player {
-            x: 1.0,
-            y: 1.0,
-            dir: 1.0,
-            fov: 1.0,
-            move_speed: 1.0,
-            rot_speed: 1.0,
-        },
-        max_depth: 100.0,
-    };
-
-    let event_loop = EventLoop::new().map_err(|e| Error::UserDefined(Box::new(e)))?;
+fn main() {
+    // Setup logic
+    let event_loop = EventLoop::new().unwrap();
     let window = {
-        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+        let size = LogicalSize::new(SCREEN_WIDTH, SCREEN_HEIGHT);
 
         #[allow(deprecated)]
         event_loop
@@ -125,52 +40,86 @@ fn main() -> Result<(), Error> {
                     .with_inner_size(size)
                     .with_min_inner_size(size),
             )
-            .map_err(|e| Error::UserDefined(Box::new(e)))?
+            .unwrap()
     };
 
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(WIDTH, HEIGHT, surface_texture)?
+        Pixels::new(SCREEN_WIDTH, SCREEN_HEIGHT, surface_texture).unwrap()
     };
 
-    #[allow(deprecated)]
-    let res = event_loop.run(|event, window_target| match event {
-        Event::WindowEvent { event, .. } => {
-            handle_window_events(event, &world, &mut pixels, window_target)
-        }
-        Event::AboutToWait => {
-            window.request_redraw();
-        }
-        _ => (),
-    });
-    res.map_err(|e| Error::UserDefined(Box::new(e)))
-}
+    // Raycasting logic
+    let pos_x: f32 = 11.0;
+    let pos_y: f32 = 6.0;
 
-fn handle_window_events(
-    event: WindowEvent,
-    world: &World,
-    pixels: &mut Pixels,
-    window_target: &ActiveEventLoop,
-) {
-    match event {
-        WindowEvent::CloseRequested => window_target.exit(),
-        WindowEvent::KeyboardInput { event, .. } => {
-            if event.physical_key == KeyCode::Escape && event.state == ElementState::Pressed {
-                window_target.exit();
+    let dir_x: f32 = -1.0;
+    let dir_y: f32 = 0.0;
+
+    let plane_x: f32 = 0.0;
+    let plane_y: f32 = 0.66;
+
+    #[allow(deprecated)]
+    let _ = event_loop
+        .run(|event, window_target| match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => window_target.exit(),
+                WindowEvent::KeyboardInput { event, .. } => {
+                    if let PhysicalKey::Code(key) = event.physical_key
+                        && event.state == ElementState::Pressed
+                    {
+                        match key {
+                            KeyCode::Escape => window_target.exit(),
+                            _ => (),
+                        }
+                    }
+                }
+                WindowEvent::RedrawRequested => {
+                    for x_stripe in 0..SCREEN_WIDTH {
+                        let camera_x = 2.0 * x_stripe as f32 / SCREEN_WIDTH as f32 - 1.0;
+                        let ray_dir_x = dir_x + plane_x * camera_x;
+                        let ray_dir_y = dir_y + plane_y * camera_x;
+
+                        let map_x = pos_x as u8;
+                        let map_y = pos_y as u8;
+
+                        let side_dist_x: f32;
+                        let side_dist_y: f32;
+
+                        let delta_dist_x = if ray_dir_x == 0.0 {
+                            1e30
+                        } else {
+                            (1.0 / ray_dir_x).abs()
+                        };
+                        let delta_dist_y = if ray_dir_y == 0.0 {
+                            1e30
+                        } else {
+                            (1.0 / ray_dir_y).abs()
+                        };
+                        let perp_wall_dist: f32;
+
+                        let step_x: u32;
+                        let step_y: u32;
+
+                        let hit: u32 = 0;
+                        let side: u32;
+
+                        if let Err(_err) = pixels.render() {
+                            window_target.exit();
+                        }
+                    }
+                }
+                WindowEvent::Resized(size) => {
+                    if let Err(_) = pixels.resize_surface(size.width, size.height) {
+                        window_target.exit();
+                    }
+                }
+                _ => (),
+            },
+            Event::AboutToWait => {
+                window.request_redraw();
             }
-        }
-        WindowEvent::RedrawRequested => {
-            world.draw(pixels.frame_mut());
-            if let Err(_err) = pixels.render() {
-                window_target.exit();
-            }
-        }
-        WindowEvent::Resized(size) => {
-            if let Err(_) = pixels.resize_surface(size.width, size.height) {
-                window_target.exit();
-            }
-        }
-        _ => (),
-    }
+            _ => (),
+        })
+        .unwrap();
 }
