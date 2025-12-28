@@ -7,37 +7,29 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
-const MAP_WIDTH: usize = 12;
-const MAP_HEIGHT: usize = 12;
-const SCREEN_WIDTH: u32 = 640;
-const SCREEN_HEIGHT: u32 = 480;
+use crate::raycaster::Raycaster;
 
-const MAP: [[u8; MAP_WIDTH]; MAP_HEIGHT] = [
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-];
+mod raycaster;
+
+/// The move speed multiplier, use this to set the velocity of the player
+const MOVE_SPEED: f32 = 0.08;
+
+/// The rotation speed multiplier, use this to set the sensitivity of the camera
+const ROT_SPEED: f32 = 0.08;
 
 fn main() -> Result<(), Error> {
+    let raycaster = Raycaster::new();
+
     let event_loop = EventLoop::new().map_err(|e| Error::UserDefined(Box::from(e)))?;
     let window = {
-        let size = LogicalSize::new(SCREEN_WIDTH, SCREEN_HEIGHT);
+        let size = LogicalSize::new(raycaster.screen.width, raycaster.screen.height);
 
         #[allow(deprecated)]
         event_loop
             .create_window(
                 WindowAttributes::default()
                     .with_title("Raycaster")
-                    .with_inner_size(size),
+                    .with_min_inner_size(size),
             )
             .map_err(|e| Error::UserDefined(Box::from(e)))?
     };
@@ -45,20 +37,27 @@ fn main() -> Result<(), Error> {
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(SCREEN_WIDTH, SCREEN_HEIGHT, surface_texture)?
+        Pixels::new(
+            raycaster.screen.width,
+            raycaster.screen.height,
+            surface_texture,
+        )?
     };
 
-    let mut pos_x: f32 = 6.0;
-    let mut pos_y: f32 = 6.0;
+    // TODO: Use struct to validade the array bounds
 
+    // Player position in the 2D array, that being, any value greater than the array bounds will
+    // result on the player being out of the map
+    let mut pos_x: f32 = 1.0;
+    let mut pos_y: f32 = 1.0;
+
+    // The direction vector, this is mutated then the player rotates its position
     let mut dir_x: f32 = -1.0;
     let mut dir_y: f32 = 0.0;
 
+    // IDK
     let mut plane_x: f32 = 0.0;
     let mut plane_y: f32 = 0.66;
-
-    const MOVE_SPEED: f32 = 0.08;
-    const ROT_SPEED: f32 = 0.08;
 
     #[allow(deprecated)]
     let res = event_loop.run(|event, window_target| match event {
@@ -71,20 +70,32 @@ fn main() -> Result<(), Error> {
                     match key {
                         KeyCode::Escape => window_target.exit(),
                         KeyCode::KeyW => {
-                            if MAP[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize] == 0 {
+                            // Moves the player up in the X Axys if no colision is detected
+                            if raycaster.map[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize]
+                                == 0
+                            {
                                 pos_x += dir_x * MOVE_SPEED;
                             }
 
-                            if MAP[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize] == 0 {
+                            // Moves the player up in the Y Axys if no colision is detected
+                            if raycaster.map[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize]
+                                == 0
+                            {
                                 pos_y += dir_y * MOVE_SPEED;
                             }
                         }
                         KeyCode::KeyS => {
-                            if MAP[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize] == 0 {
+                            // Moves the player down in the X Axys if no colision is detected
+                            if raycaster.map[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize]
+                                == 0
+                            {
                                 pos_x -= dir_x * MOVE_SPEED;
                             }
 
-                            if MAP[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize] == 0 {
+                            // Moves the player down in the Y Axys if no colision is detected
+                            if raycaster.map[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize]
+                                == 0
+                            {
                                 pos_y -= dir_y * MOVE_SPEED;
                             }
                         }
@@ -118,8 +129,8 @@ fn main() -> Result<(), Error> {
             }
             WindowEvent::RedrawRequested => {
                 pixels.frame_mut().fill(0);
-                for x_stripe in 0..SCREEN_WIDTH {
-                    let camera_x = 2.0 * x_stripe as f32 / SCREEN_WIDTH as f32 - 1.0;
+                for x_stripe in 0..raycaster.screen.width {
+                    let camera_x = 2.0 * x_stripe as f32 / raycaster.screen.width as f32 - 1.0;
                     let ray_dir_x = dir_x + plane_x * camera_x;
                     let ray_dir_y = dir_y + plane_y * camera_x;
 
@@ -168,7 +179,7 @@ fn main() -> Result<(), Error> {
                             side = 1;
                         }
 
-                        if MAP[map_x as usize][map_y as usize] > 0 {
+                        if raycaster.map[map_x as usize][map_y as usize] > 0 {
                             hit = 1;
                         }
                     }
@@ -179,15 +190,15 @@ fn main() -> Result<(), Error> {
                         perp_wall_dist = side_dist_y - delta_dist_y;
                     }
 
-                    let line_height = (SCREEN_HEIGHT as f32 / perp_wall_dist) as i32;
+                    let line_height = (raycaster.screen.height as f32 / perp_wall_dist) as i32;
 
-                    let mut draw_start = -line_height / 2 + SCREEN_HEIGHT as i32 / 2;
+                    let mut draw_start = -line_height / 2 + raycaster.screen.height as i32 / 2;
                     if draw_start < 0 {
                         draw_start = 0;
                     }
-                    let mut draw_end = line_height / 2 + SCREEN_HEIGHT as i32 / 2;
-                    if draw_end >= SCREEN_HEIGHT as i32 {
-                        draw_end = SCREEN_HEIGHT as i32 - 1;
+                    let mut draw_end = line_height / 2 + raycaster.screen.height as i32 / 2;
+                    if draw_end >= raycaster.screen.height as i32 {
+                        draw_end = raycaster.screen.height as i32 - 1;
                     }
 
                     let mut rgba = [0x5e, 0x48, 0xe8, 0xff];
@@ -202,7 +213,7 @@ fn main() -> Result<(), Error> {
                         draw_end as usize,
                         rgba,
                         pixels.frame_mut(),
-                        SCREEN_WIDTH as usize,
+                        raycaster.screen.width as usize,
                     );
                 }
 
