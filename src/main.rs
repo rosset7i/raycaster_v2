@@ -11,14 +11,8 @@ use crate::raycaster::Raycaster;
 
 mod raycaster;
 
-/// The move speed multiplier, use this to set the velocity of the player
-const MOVE_SPEED: f32 = 0.08;
-
-/// The rotation speed multiplier, use this to set the sensitivity of the camera
-const ROT_SPEED: f32 = 0.08;
-
 fn main() -> Result<(), Error> {
-    let raycaster = Raycaster::new();
+    let mut raycaster = Raycaster::new();
 
     let event_loop = EventLoop::new().map_err(|e| Error::UserDefined(Box::from(e)))?;
     let window = {
@@ -44,21 +38,6 @@ fn main() -> Result<(), Error> {
         )?
     };
 
-    // TODO: Use struct to validade the array bounds
-
-    // Player position in the 2D array, that being, any value greater than the array bounds will
-    // result on the player being out of the map
-    let mut pos_x: f32 = 1.0;
-    let mut pos_y: f32 = 1.0;
-
-    // The direction vector, this is mutated then the player rotates its position
-    let mut dir_x: f32 = -1.0;
-    let mut dir_y: f32 = 0.0;
-
-    // IDK
-    let mut plane_x: f32 = 0.0;
-    let mut plane_y: f32 = 0.66;
-
     #[allow(deprecated)]
     let res = event_loop.run(|event, window_target| match event {
         Event::WindowEvent { event, .. } => match event {
@@ -69,60 +48,10 @@ fn main() -> Result<(), Error> {
                 {
                     match key {
                         KeyCode::Escape => window_target.exit(),
-                        KeyCode::KeyW => {
-                            // Moves the player up in the X Axys if no colision is detected
-                            if raycaster.map[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize]
-                                == 0
-                            {
-                                pos_x += dir_x * MOVE_SPEED;
-                            }
-
-                            // Moves the player up in the Y Axys if no colision is detected
-                            if raycaster.map[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize]
-                                == 0
-                            {
-                                pos_y += dir_y * MOVE_SPEED;
-                            }
-                        }
-                        KeyCode::KeyS => {
-                            // Moves the player down in the X Axys if no colision is detected
-                            if raycaster.map[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize]
-                                == 0
-                            {
-                                pos_x -= dir_x * MOVE_SPEED;
-                            }
-
-                            // Moves the player down in the Y Axys if no colision is detected
-                            if raycaster.map[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize]
-                                == 0
-                            {
-                                pos_y -= dir_y * MOVE_SPEED;
-                            }
-                        }
-                        KeyCode::KeyA => {
-                            let cos = ROT_SPEED.cos();
-                            let sin = ROT_SPEED.sin();
-
-                            let old_dir_x = dir_x;
-                            dir_x = dir_x * cos - dir_y * sin;
-                            dir_y = old_dir_x * sin + dir_y * cos;
-
-                            let old_plane_x = plane_x;
-                            plane_x = plane_x * cos - plane_y * sin;
-                            plane_y = old_plane_x * sin + plane_y * cos;
-                        }
-                        KeyCode::KeyD => {
-                            let cos = (-ROT_SPEED).cos();
-                            let sin = (-ROT_SPEED).sin();
-
-                            let old_dir_x = dir_x;
-                            dir_x = dir_x * cos - dir_y * sin;
-                            dir_y = old_dir_x * sin + dir_y * cos;
-
-                            let old_plane_x = plane_x;
-                            plane_x = plane_x * cos - plane_y * sin;
-                            plane_y = old_plane_x * sin + plane_y * cos;
-                        }
+                        KeyCode::KeyW => raycaster.player.move_up(&raycaster.map),
+                        KeyCode::KeyS => raycaster.player.move_down(&raycaster.map),
+                        KeyCode::KeyA => raycaster.player.rotate(true),
+                        KeyCode::KeyD => raycaster.player.rotate(false),
                         _ => (),
                     }
                 }
@@ -131,11 +60,13 @@ fn main() -> Result<(), Error> {
                 pixels.frame_mut().fill(0);
                 for x_stripe in 0..raycaster.screen.width {
                     let camera_x = 2.0 * x_stripe as f32 / raycaster.screen.width as f32 - 1.0;
-                    let ray_dir_x = dir_x + plane_x * camera_x;
-                    let ray_dir_y = dir_y + plane_y * camera_x;
+                    let ray_dir_x =
+                        raycaster.player.direction.x + raycaster.player.plane.x * camera_x;
+                    let ray_dir_y =
+                        raycaster.player.direction.y + raycaster.player.plane.y * camera_x;
 
-                    let mut map_x = pos_x as i32;
-                    let mut map_y = pos_y as i32;
+                    let mut map_x = raycaster.player.position.x as i32;
+                    let mut map_y = raycaster.player.position.y as i32;
 
                     let mut side_dist_x: f32;
                     let mut side_dist_y: f32;
@@ -154,18 +85,18 @@ fn main() -> Result<(), Error> {
 
                     side_dist_x = if ray_dir_x < 0.0 {
                         step_x = -1;
-                        (pos_x - map_x as f32) * delta_dist_x
+                        (raycaster.player.position.x - map_x as f32) * delta_dist_x
                     } else {
                         step_x = 1;
-                        (map_x as f32 + 1.0 - pos_x) * delta_dist_x
+                        (map_x as f32 + 1.0 - raycaster.player.position.x) * delta_dist_x
                     };
 
                     side_dist_y = if ray_dir_y < 0.0 {
                         step_y = -1;
-                        (pos_y - map_y as f32) * delta_dist_y
+                        (raycaster.player.position.y - map_y as f32) * delta_dist_y
                     } else {
                         step_y = 1;
-                        (map_y as f32 + 1.0 - pos_y) * delta_dist_y
+                        (map_y as f32 + 1.0 - raycaster.player.position.y) * delta_dist_y
                     };
 
                     while hit == 0 {
