@@ -1,4 +1,5 @@
 use pixels::{Error, Pixels, SurfaceTexture};
+use std::collections::HashMap;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, WindowEvent};
 use winit::window::WindowAttributes;
@@ -16,13 +17,13 @@ const MAP: [[u8; MAP_WIDTH]; MAP_HEIGHT] = [
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 4, 0, 0, 2, 0, 0, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1],
+    [1, 0, 3, 3, 3, 0, 0, 0, 2, 0, 0, 1],
+    [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1],
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
 ];
@@ -90,7 +91,33 @@ impl Raycaster {
     }
 }
 
+enum Texture {
+    Color([u8; 4], [u8; 4]),
+}
+
+impl Texture {
+    fn color(&self, side: bool) -> &[u8; 4] {
+        match self {
+            Texture::Color(light, dark) => {
+                if side {
+                    dark
+                } else {
+                    light
+                }
+            }
+        }
+    }
+}
+
 fn main() -> Result<(), Error> {
+    let fallback_texture = Texture::Color([255, 0, 255, 255], [128, 0, 128, 255]); // debug pink
+
+    let textures: HashMap<u8, Texture> = HashMap::from([
+        (1, Texture::Color([94, 72, 232, 255], [47, 36, 116, 255])), // BLUE
+        (2, Texture::Color([232, 72, 94, 255], [116, 36, 47, 255])), // RED
+        (3, Texture::Color([72, 232, 94, 255], [36, 116, 47, 255])), // GREEN
+    ]);
+
     let event_loop = EventLoop::new().map_err(|e| Error::UserDefined(Box::from(e)))?;
 
     let window = {
@@ -143,47 +170,50 @@ fn main() -> Result<(), Error> {
             }
             WindowEvent::RedrawRequested => {
                 pixels.frame_mut().fill(0);
-                for x_stripe in 0..SCREEN_WIDTH {
-                    let camera_x = 2.0 * x_stripe as f32 / SCREEN_WIDTH as f32 - 1.0;
+                for vertical_stripe in 0..SCREEN_WIDTH {
+                    let camera_x = 2.0 * vertical_stripe as f32 / SCREEN_WIDTH as f32 - 1.0;
                     let ray_dir_x = raycaster.dir_x + raycaster.plane_x * camera_x;
                     let ray_dir_y = raycaster.dir_y + raycaster.plane_y * camera_x;
-
-                    let mut map_x = raycaster.pos_x as i32;
-                    let mut map_y = raycaster.pos_y as i32;
 
                     let delta_dist_x = (1.0 / ray_dir_x).abs();
                     let delta_dist_y = (1.0 / ray_dir_y).abs();
 
                     let (mut side_dist_x, step_x) = if ray_dir_x < 0.0 {
-                        ((raycaster.pos_x - map_x as f32) * delta_dist_x, -1)
+                        (raycaster.pos_x.fract() * delta_dist_x, -1)
                     } else {
-                        ((map_x as f32 + 1.0 - raycaster.pos_x) * delta_dist_x, 1)
+                        ((1.0 - raycaster.pos_x.fract()) * delta_dist_x, 1)
                     };
 
                     let (mut side_dist_y, step_y) = if ray_dir_y < 0.0 {
-                        ((raycaster.pos_y - map_y as f32) * delta_dist_y, -1)
+                        (raycaster.pos_y.fract() * delta_dist_y, -1)
                     } else {
-                        ((map_y as f32 + 1.0 - raycaster.pos_y) * delta_dist_y, 1)
+                        ((1.0 - raycaster.pos_y.fract()) * delta_dist_y, 1)
                     };
 
-                    let mut side: u32;
+                    let mut side: bool;
+                    let mut map_x = raycaster.pos_x as i32;
+                    let mut map_y = raycaster.pos_y as i32;
+                    let texture: &Texture;
                     loop {
                         if side_dist_x < side_dist_y {
                             side_dist_x += delta_dist_x;
                             map_x += step_x;
-                            side = 0;
+                            side = false;
                         } else {
                             side_dist_y += delta_dist_y;
                             map_y += step_y;
-                            side = 1;
+                            side = true;
                         }
 
-                        if MAP[map_x as usize][map_y as usize] > 0 {
+                        let cell = MAP[map_x as usize][map_y as usize];
+
+                        if cell > 0 {
+                            texture = textures.get(&cell).unwrap_or(&fallback_texture);
                             break;
                         }
                     }
 
-                    let perp_wall_dist = if side == 0 {
+                    let perp_wall_dist = if !side {
                         side_dist_x - delta_dist_x
                     } else {
                         side_dist_y - delta_dist_y
@@ -195,28 +225,23 @@ fn main() -> Result<(), Error> {
                     if draw_start < 0 {
                         draw_start = 0;
                     }
+
                     let mut draw_end = line_height / 2 + SCREEN_HEIGHT as i32 / 2;
                     if draw_end >= SCREEN_HEIGHT as i32 {
                         draw_end = SCREEN_HEIGHT as i32 - 1;
                     }
 
-                    let mut rgba = [0x5e, 0x48, 0xe8, 0xff];
-
-                    if side == 1 {
-                        rgba = [rgba[0] / 2, rgba[1] / 2, rgba[2] / 2, rgba[3]];
-                    }
-
                     draw_vertical_line(
-                        x_stripe as usize,
+                        vertical_stripe as usize,
                         draw_start as usize,
                         draw_end as usize,
-                        rgba,
+                        *texture.color(side),
                         pixels.frame_mut(),
                         SCREEN_WIDTH as usize,
                     );
                 }
 
-                if let Err(_err) = pixels.render() {
+                if pixels.render().is_err() {
                     window_target.exit();
                 }
             }
@@ -236,7 +261,7 @@ fn main() -> Result<(), Error> {
 }
 
 fn draw_vertical_line(
-    x: usize,
+    line: usize,
     y_start: usize,
     y_end: usize,
     color: [u8; 4],
@@ -244,7 +269,7 @@ fn draw_vertical_line(
     width: usize,
 ) {
     for y in y_start..=y_end {
-        let idx = (y * width + x) * 4;
+        let idx = (y * width + line) * 4;
         frame[idx..idx + 4].copy_from_slice(&color);
     }
 }
