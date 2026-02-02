@@ -27,8 +27,72 @@ const MAP: [[u8; MAP_WIDTH]; MAP_HEIGHT] = [
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
 ];
 
+#[derive(Default)]
+struct Raycaster {
+    pos_x: f32,
+    pos_y: f32,
+
+    dir_x: f32,
+    dir_y: f32,
+
+    plane_x: f32,
+    plane_y: f32,
+
+    move_speed: f32,
+    rot_speed: f32,
+}
+
+impl Raycaster {
+    fn move_up(&mut self) {
+        if MAP[(self.pos_x + self.dir_x * self.move_speed) as usize][self.pos_y as usize] == 0 {
+            self.pos_x += self.dir_x * self.move_speed;
+        }
+
+        if MAP[self.pos_x as usize][(self.pos_y + self.dir_y * self.move_speed) as usize] == 0 {
+            self.pos_y += self.dir_y * self.move_speed;
+        }
+    }
+
+    fn move_down(&mut self) {
+        if MAP[(self.pos_x + self.dir_x * self.move_speed) as usize][self.pos_y as usize] == 0 {
+            self.pos_x -= self.dir_x * self.move_speed;
+        }
+
+        if MAP[self.pos_x as usize][(self.pos_y + self.dir_y * self.move_speed) as usize] == 0 {
+            self.pos_y -= self.dir_y * self.move_speed;
+        }
+    }
+
+    fn turn_left(&mut self) {
+        let cos = self.rot_speed.cos();
+        let sin = self.rot_speed.sin();
+
+        let old_dir_x = self.dir_x;
+        self.dir_x = self.dir_x * cos - self.dir_y * sin;
+        self.dir_y = old_dir_x * sin + self.dir_y * cos;
+
+        let old_plane_x = self.plane_x;
+        self.plane_x = self.plane_x * cos - self.plane_y * sin;
+        self.plane_y = old_plane_x * sin + self.plane_y * cos;
+    }
+
+    fn turn_right(&mut self) {
+        let cos = (-self.rot_speed).cos();
+        let sin = (-self.rot_speed).sin();
+
+        let old_dir_x = self.dir_x;
+        self.dir_x = self.dir_x * cos - self.dir_y * sin;
+        self.dir_y = old_dir_x * sin + self.dir_y * cos;
+
+        let old_plane_x = self.plane_x;
+        self.plane_x = self.plane_x * cos - self.plane_y * sin;
+        self.plane_y = old_plane_x * sin + self.plane_y * cos;
+    }
+}
+
 fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new().map_err(|e| Error::UserDefined(Box::from(e)))?;
+
     let window = {
         let size = LogicalSize::new(SCREEN_WIDTH, SCREEN_HEIGHT);
 
@@ -48,17 +112,16 @@ fn main() -> Result<(), Error> {
         Pixels::new(SCREEN_WIDTH, SCREEN_HEIGHT, surface_texture)?
     };
 
-    let mut pos_x: f32 = 6.0;
-    let mut pos_y: f32 = 6.0;
-
-    let mut dir_x: f32 = -1.0;
-    let mut dir_y: f32 = 0.0;
-
-    let mut plane_x: f32 = 0.0;
-    let mut plane_y: f32 = 0.66;
-
-    const MOVE_SPEED: f32 = 0.08;
-    const ROT_SPEED: f32 = 0.08;
+    let mut raycaster = Raycaster {
+        pos_x: 6.0,
+        pos_y: 6.0,
+        dir_x: -1.0,
+        dir_y: 0.0,
+        plane_x: 0.0,
+        plane_y: 0.66,
+        move_speed: 0.08,
+        rot_speed: 0.08,
+    };
 
     #[allow(deprecated)]
     let res = event_loop.run(|event, window_target| match event {
@@ -70,48 +133,10 @@ fn main() -> Result<(), Error> {
                 {
                     match key {
                         KeyCode::Escape => window_target.exit(),
-                        KeyCode::KeyW => {
-                            if MAP[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize] == 0 {
-                                pos_x += dir_x * MOVE_SPEED;
-                            }
-
-                            if MAP[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize] == 0 {
-                                pos_y += dir_y * MOVE_SPEED;
-                            }
-                        }
-                        KeyCode::KeyS => {
-                            if MAP[(pos_x + dir_x * MOVE_SPEED) as usize][pos_y as usize] == 0 {
-                                pos_x -= dir_x * MOVE_SPEED;
-                            }
-
-                            if MAP[pos_x as usize][(pos_y + dir_y * MOVE_SPEED) as usize] == 0 {
-                                pos_y -= dir_y * MOVE_SPEED;
-                            }
-                        }
-                        KeyCode::KeyA => {
-                            let cos = ROT_SPEED.cos();
-                            let sin = ROT_SPEED.sin();
-
-                            let old_dir_x = dir_x;
-                            dir_x = dir_x * cos - dir_y * sin;
-                            dir_y = old_dir_x * sin + dir_y * cos;
-
-                            let old_plane_x = plane_x;
-                            plane_x = plane_x * cos - plane_y * sin;
-                            plane_y = old_plane_x * sin + plane_y * cos;
-                        }
-                        KeyCode::KeyD => {
-                            let cos = (-ROT_SPEED).cos();
-                            let sin = (-ROT_SPEED).sin();
-
-                            let old_dir_x = dir_x;
-                            dir_x = dir_x * cos - dir_y * sin;
-                            dir_y = old_dir_x * sin + dir_y * cos;
-
-                            let old_plane_x = plane_x;
-                            plane_x = plane_x * cos - plane_y * sin;
-                            plane_y = old_plane_x * sin + plane_y * cos;
-                        }
+                        KeyCode::KeyW => raycaster.move_up(),
+                        KeyCode::KeyS => raycaster.move_down(),
+                        KeyCode::KeyA => raycaster.turn_left(),
+                        KeyCode::KeyD => raycaster.turn_right(),
                         _ => (),
                     }
                 }
@@ -120,44 +145,29 @@ fn main() -> Result<(), Error> {
                 pixels.frame_mut().fill(0);
                 for x_stripe in 0..SCREEN_WIDTH {
                     let camera_x = 2.0 * x_stripe as f32 / SCREEN_WIDTH as f32 - 1.0;
-                    let ray_dir_x = dir_x + plane_x * camera_x;
-                    let ray_dir_y = dir_y + plane_y * camera_x;
+                    let ray_dir_x = raycaster.dir_x + raycaster.plane_x * camera_x;
+                    let ray_dir_y = raycaster.dir_y + raycaster.plane_y * camera_x;
 
-                    let mut map_x = pos_x as i32;
-                    let mut map_y = pos_y as i32;
+                    let mut map_x = raycaster.pos_x as i32;
+                    let mut map_y = raycaster.pos_y as i32;
 
-                    let mut side_dist_x: f32;
-                    let mut side_dist_y: f32;
-
-                    // Possible division by 0
                     let delta_dist_x = (1.0 / ray_dir_x).abs();
                     let delta_dist_y = (1.0 / ray_dir_y).abs();
 
-                    let perp_wall_dist: f32;
-
-                    let step_x: i32;
-                    let step_y: i32;
-
-                    let mut hit: u32 = 0;
-                    let mut side: u32 = 0;
-
-                    side_dist_x = if ray_dir_x < 0.0 {
-                        step_x = -1;
-                        (pos_x - map_x as f32) * delta_dist_x
+                    let (mut side_dist_x, step_x) = if ray_dir_x < 0.0 {
+                        ((raycaster.pos_x - map_x as f32) * delta_dist_x, -1)
                     } else {
-                        step_x = 1;
-                        (map_x as f32 + 1.0 - pos_x) * delta_dist_x
+                        ((map_x as f32 + 1.0 - raycaster.pos_x) * delta_dist_x, 1)
                     };
 
-                    side_dist_y = if ray_dir_y < 0.0 {
-                        step_y = -1;
-                        (pos_y - map_y as f32) * delta_dist_y
+                    let (mut side_dist_y, step_y) = if ray_dir_y < 0.0 {
+                        ((raycaster.pos_y - map_y as f32) * delta_dist_y, -1)
                     } else {
-                        step_y = 1;
-                        (map_y as f32 + 1.0 - pos_y) * delta_dist_y
+                        ((map_y as f32 + 1.0 - raycaster.pos_y) * delta_dist_y, 1)
                     };
 
-                    while hit == 0 {
+                    let mut side: u32;
+                    loop {
                         if side_dist_x < side_dist_y {
                             side_dist_x += delta_dist_x;
                             map_x += step_x;
@@ -169,15 +179,15 @@ fn main() -> Result<(), Error> {
                         }
 
                         if MAP[map_x as usize][map_y as usize] > 0 {
-                            hit = 1;
+                            break;
                         }
                     }
 
-                    if side == 0 {
-                        perp_wall_dist = side_dist_x - delta_dist_x;
+                    let perp_wall_dist = if side == 0 {
+                        side_dist_x - delta_dist_x
                     } else {
-                        perp_wall_dist = side_dist_y - delta_dist_y;
-                    }
+                        side_dist_y - delta_dist_y
+                    };
 
                     let line_height = (SCREEN_HEIGHT as f32 / perp_wall_dist) as i32;
 
@@ -211,7 +221,7 @@ fn main() -> Result<(), Error> {
                 }
             }
             WindowEvent::Resized(size) => {
-                if let Err(_) = pixels.resize_surface(size.width, size.height) {
+                if pixels.resize_surface(size.width, size.height).is_err() {
                     window_target.exit();
                 }
             }
