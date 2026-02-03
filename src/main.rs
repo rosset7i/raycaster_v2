@@ -1,5 +1,6 @@
-use pixels::{Error, Pixels, SurfaceTexture};
+use pixels::{Pixels, SurfaceTexture};
 use std::collections::HashMap;
+use std::error::Error;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, WindowEvent};
 use winit::window::WindowAttributes;
@@ -109,7 +110,7 @@ impl Texture {
     }
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), Box<dyn Error>> {
     let fallback_texture = Texture::Color([255, 0, 255, 255], [128, 0, 128, 255]); // debug pink
 
     let textures: HashMap<u8, Texture> = HashMap::from([
@@ -118,19 +119,17 @@ fn main() -> Result<(), Error> {
         (3, Texture::Color([72, 232, 94, 255], [36, 116, 47, 255])), // GREEN
     ]);
 
-    let event_loop = EventLoop::new().map_err(|e| Error::UserDefined(Box::from(e)))?;
+    let event_loop = EventLoop::new()?;
 
     let window = {
         let size = LogicalSize::new(SCREEN_WIDTH, SCREEN_HEIGHT);
 
         #[allow(deprecated)]
-        event_loop
-            .create_window(
-                WindowAttributes::default()
-                    .with_title("Raycaster")
-                    .with_inner_size(size),
-            )
-            .map_err(|e| Error::UserDefined(Box::from(e)))?
+        event_loop.create_window(
+            WindowAttributes::default()
+                .with_title("Raycaster")
+                .with_inner_size(size),
+        )?
     };
 
     let mut pixels = {
@@ -257,7 +256,8 @@ fn main() -> Result<(), Error> {
         }
         _ => (),
     });
-    res.map_err(|e| Error::UserDefined(Box::new(e)))
+
+    Ok(res?)
 }
 
 fn draw_vertical_line(
