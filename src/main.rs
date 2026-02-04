@@ -1,6 +1,8 @@
 use pixels::{Pixels, SurfaceTexture};
-use std::collections::HashMap;
+use raycaster::Raycaster;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::time::{Duration, Instant};
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, WindowEvent};
 use winit::window::WindowAttributes;
@@ -9,88 +11,10 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
-const MAP_WIDTH: usize = 12;
-const MAP_HEIGHT: usize = 12;
+mod raycaster;
+
 const SCREEN_WIDTH: u32 = 640;
 const SCREEN_HEIGHT: u32 = 480;
-
-const MAP: [[u8; MAP_WIDTH]; MAP_HEIGHT] = [
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 4, 0, 0, 2, 0, 0, 1],
-    [1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1],
-    [1, 0, 3, 3, 3, 0, 0, 0, 2, 0, 0, 1],
-    [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-];
-
-#[derive(Default)]
-struct Raycaster {
-    pos_x: f32,
-    pos_y: f32,
-
-    dir_x: f32,
-    dir_y: f32,
-
-    plane_x: f32,
-    plane_y: f32,
-
-    move_speed: f32,
-    rot_speed: f32,
-}
-
-impl Raycaster {
-    fn move_up(&mut self) {
-        if MAP[(self.pos_x + self.dir_x * self.move_speed) as usize][self.pos_y as usize] == 0 {
-            self.pos_x += self.dir_x * self.move_speed;
-        }
-
-        if MAP[self.pos_x as usize][(self.pos_y + self.dir_y * self.move_speed) as usize] == 0 {
-            self.pos_y += self.dir_y * self.move_speed;
-        }
-    }
-
-    fn move_down(&mut self) {
-        if MAP[(self.pos_x + self.dir_x * self.move_speed) as usize][self.pos_y as usize] == 0 {
-            self.pos_x -= self.dir_x * self.move_speed;
-        }
-
-        if MAP[self.pos_x as usize][(self.pos_y + self.dir_y * self.move_speed) as usize] == 0 {
-            self.pos_y -= self.dir_y * self.move_speed;
-        }
-    }
-
-    fn turn_left(&mut self) {
-        let cos = self.rot_speed.cos();
-        let sin = self.rot_speed.sin();
-
-        let old_dir_x = self.dir_x;
-        self.dir_x = self.dir_x * cos - self.dir_y * sin;
-        self.dir_y = old_dir_x * sin + self.dir_y * cos;
-
-        let old_plane_x = self.plane_x;
-        self.plane_x = self.plane_x * cos - self.plane_y * sin;
-        self.plane_y = old_plane_x * sin + self.plane_y * cos;
-    }
-
-    fn turn_right(&mut self) {
-        let cos = (-self.rot_speed).cos();
-        let sin = (-self.rot_speed).sin();
-
-        let old_dir_x = self.dir_x;
-        self.dir_x = self.dir_x * cos - self.dir_y * sin;
-        self.dir_y = old_dir_x * sin + self.dir_y * cos;
-
-        let old_plane_x = self.plane_x;
-        self.plane_x = self.plane_x * cos - self.plane_y * sin;
-        self.plane_y = old_plane_x * sin + self.plane_y * cos;
-    }
-}
 
 enum Texture {
     Color([u8; 4], [u8; 4]),
@@ -111,6 +35,12 @@ impl Texture {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    let mut pressed_keys: HashSet<KeyCode> = HashSet::new();
+
     let fallback_texture = Texture::Color([255, 0, 255, 255], [128, 0, 128, 255]); // debug pink
 
     let textures: HashMap<u8, Texture> = HashMap::from([
@@ -145,18 +75,31 @@ fn main() -> Result<(), Box<dyn Error>> {
         dir_y: 0.0,
         plane_x: 0.0,
         plane_y: 0.66,
-        move_speed: 0.08,
-        rot_speed: 0.08,
+        move_speed: 0.05,
+        rot_speed: 0.05,
+        map: vec![],
     };
+    raycaster.load_map_from_file(None)?;
+
+    let mut now = Instant::now();
+    let mut frame_count: u32 = 0;
 
     #[allow(deprecated)]
     let res = event_loop.run(|event, window_target| match event {
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::CloseRequested => window_target.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
-                if let PhysicalKey::Code(key) = event.physical_key
-                    && event.state == ElementState::Pressed
-                {
+                let PhysicalKey::Code(key) = event.physical_key else {
+                    return;
+                };
+
+                match event.state {
+                    ElementState::Pressed => pressed_keys.insert(key),
+                    ElementState::Released => pressed_keys.remove(&key),
+                };
+            }
+            WindowEvent::RedrawRequested => {
+                for key in &pressed_keys {
                     match key {
                         KeyCode::Escape => window_target.exit(),
                         KeyCode::KeyW => raycaster.move_up(),
@@ -166,8 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         _ => (),
                     }
                 }
-            }
-            WindowEvent::RedrawRequested => {
+
                 pixels.frame_mut().fill(0);
                 for vertical_stripe in 0..SCREEN_WIDTH {
                     let camera_x = 2.0 * vertical_stripe as f32 / SCREEN_WIDTH as f32 - 1.0;
@@ -204,7 +146,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             side = true;
                         }
 
-                        let cell = MAP[map_x as usize][map_y as usize];
+                        let cell = raycaster.map[map_x as usize][map_y as usize];
 
                         if cell > 0 {
                             texture = textures.get(&cell).unwrap_or(&fallback_texture);
@@ -242,6 +184,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 if pixels.render().is_err() {
                     window_target.exit();
+                }
+
+                frame_count += 1;
+                let elapsed = now.elapsed();
+                if elapsed >= Duration::from_secs(1) {
+                    let fps = frame_count as f64 / elapsed.as_secs_f64();
+                    log::info!("fps: {:.1}", fps);
+
+                    frame_count = 0;
+                    now = Instant::now();
                 }
             }
             WindowEvent::Resized(size) => {
